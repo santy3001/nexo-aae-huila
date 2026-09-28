@@ -1,0 +1,10 @@
+﻿venv/
+__pycache__/
+*.pyc
+.env
+processed/*.duckdb
+raw/ideam/*.csv
+raw/agronet/*.csv
+raw/xm/*.csv
+.vscode/
+*.log

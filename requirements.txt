@@ -1,0 +1,8 @@
+pandas>=2.2
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+seaborn>=0.13
+duckdb>=1.0
+pydataxm>=0.3.16
+openpyxl>=3.1
