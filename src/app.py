@@ -1,56 +1,72 @@
-import streamlit as st
+"""
+Dashboard del Nexo Agua-Alimento-Energía (Huila).
+Lee la tabla nexo_aae de DuckDB (datos reales) y muestra lo que haya disponible.
+
+Uso:  streamlit run src/app.py
+"""
+
+from pathlib import Path
+
 import duckdb
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import streamlit as st
 
-st.set_page_config(page_title="Nexo Agua-Alimento-Energía (Huila)", layout="wide")
+RUTA_DB = Path(__file__).resolve().parent.parent / "processed" / "nexo_aae_huila.duckdb"
 
-st.title("⚡🌾💧 Nexo Agua, Alimentos y Energía - Huila (2020-2024)")
-st.markdown("Dashboard interactivo para visualizar la relación entre caudales, generación hidroeléctrica y producción agrícola.")
+st.set_page_config(page_title="Nexo AAE Huila", layout="wide")
+st.title("Nexo Agua-Alimento-Energía · Huila")
+st.caption("Datos reales integrados desde IDEAM, Agronet y XM")
 
-# Conectar a DuckDB y cargar datos
+
 @st.cache_data
-def cargar_datos():
-    con = duckdb.connect("../processed/nexo_aae_huila.duckdb", read_only=True)
+def cargar() -> pd.DataFrame:
+    con = duckdb.connect(str(RUTA_DB), read_only=True)
     df = con.execute("SELECT * FROM nexo_aae").df()
     con.close()
+    df["fecha"] = pd.to_datetime(df["fecha"])
     return df
 
-df_long = cargar_datos()
 
-# Pivotar para mostrar formato ancho
-df_ancho = df_long.pivot_table(
-    index=["fecha", "territorio"], columns="variable", values="valor"
-).reset_index()
+if not RUTA_DB.exists():
+    st.error("No existe la base de datos. Corre primero: python src/integrate.py")
+    st.stop()
 
-# Sidebar para filtros
-st.sidebar.header("Filtros del Panel")
-territorio_sel = st.sidebar.selectbox("Seleccione Territorio:", df_long["territorio"].unique())
+df = cargar()
 
-df_filtrado = df_ancho[df_ancho["territorio"] == territorio_sel]
+# Filtros
+fuentes = sorted(df["fuente"].unique())
+fuente_sel = st.sidebar.multiselect("Fuente", fuentes, default=fuentes)
+df = df[df["fuente"].isin(fuente_sel)]
 
-# Métricas principales (KPIs)
-st.subheader(f"📊 Resumen Estadístico - {territorio_sel}")
-col1, col2, col3 = st.columns(3)
+if df.empty:
+    st.warning("No hay datos con esos filtros.")
+    st.stop()
 
-with col1:
-    st.metric("Promedio Caudal", f"{df_filtrado['caudal_m3s'].mean():.2f} m³/s")
-with col2:
-    st.metric("Promedio Generación", f"{df_filtrado['generacion_gwh'].mean():.2f} GWh")
-with col3:
-    st.metric("Promedio Arroz", f"{df_filtrado['produccion_arroz_ton'].mean():.2f} Ton")
+anios = sorted(df["fecha"].dt.year.unique())
+rango = st.sidebar.select_slider(
+    "Años", options=anios, value=(anios[0], anios[-1])
+)
+df = df[df["fecha"].dt.year.between(rango[0], rango[1])]
 
-# Gráficas de tendencias temporales
-st.subheader("📈 Tendencias Históricas (2020-2024)")
-st.line_chart(df_filtrado.set_index("fecha")[["caudal_m3s", "generacion_gwh", "produccion_arroz_ton"]])
+# Resumen
+c1, c2, c3 = st.columns(3)
+c1.metric("Filas", f"{len(df):,}")
+c2.metric("Variables", df["variable"].nunique())
+c3.metric("Territorios", df["territorio"].nunique())
 
-# Matriz de Correlación
-st.subheader("🔗 Matriz de Correlación de Pearson")
-fig, ax = plt.subplots(figsize=(8, 5))
-sns.heatmap(df_filtrado[["caudal_m3s", "generacion_gwh", "produccion_arroz_ton"]].corr(), annot=True, cmap="Blues", fmt=".2f", ax=ax)
-st.pyplot(fig)
+# Una sección por variable
+for variable, grupo in df.groupby("variable"):
+    unidad = grupo["unidad"].iloc[0]
+    fuente = grupo["fuente"].iloc[0]
+    st.subheader(f"{variable} ({unidad}) · {fuente}")
 
-# Tabla de datos
-if st.checkbox("Mostrar tabla de datos sin procesar"):
-    st.dataframe(df_filtrado)
+    ancho = grupo.pivot_table(
+        index="fecha", columns="territorio", values="valor", aggfunc="mean"
+    )
+    st.line_chart(ancho)
+
+    resumen = grupo.groupby("territorio")["valor"].agg(["min", "mean", "max"]).round(2)
+    st.dataframe(resumen, use_container_width=True)
+
+if st.checkbox("Mostrar tabla completa"):
+    st.dataframe(df, use_container_width=True)

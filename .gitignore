@@ -8,3 +8,4 @@ raw/agronet/*.csv
 raw/xm/*.csv
 .vscode/
 *.log
+.venv/

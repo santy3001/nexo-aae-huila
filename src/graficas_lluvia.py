@@ -1,4 +1,4 @@
-"""Genera gráficas de la precipitación mensual real de IDEAM.
+"""Genera gráficas de la precipitación mensual real de IDEAM (Con barras optimizadas y mejor soporte temporal).
 
 Entrada:
     processed/lluvia_mensual_huila.csv
@@ -39,7 +39,8 @@ def main() -> None:
         d = datos[datos["municipio"] == municipio]
 
         plt.figure(figsize=(12, 5))
-        plt.bar(d["mes"], d["precipitacion_mm"], color="#2f6fb0")
+        # width=25 da un grosor visual adecuado a las barras mensuales
+        plt.bar(d["mes"], d["precipitacion_mm"], color="#2f6fb0", width=25)
         plt.title(
             f"Precipitación mensual real - {municipio}\n"
             "Fuente: IDEAM / Datos Abiertos Colombia"
@@ -56,14 +57,16 @@ def main() -> None:
 
         print("Gráfica guardada:", archivo)
 
-    # Comparación entre municipios
+    # Comparación entre municipios (Con reindexación para evitar líneas diagonales largas por meses faltantes)
     plt.figure(figsize=(13, 5))
 
     for municipio in municipios:
-        d = datos[datos["municipio"] == municipio]
+        d = datos[datos["municipio"] == municipio].set_index("mes")
+        d_full = d.reindex(pd.date_range(d.index.min(), d.index.max(), freq='MS'))
+        
         plt.plot(
-            d["mes"],
-            d["precipitacion_mm"],
+            d_full.index,
+            d_full["precipitacion_mm"],
             marker="o",
             linewidth=1.5,
             label=municipio,
