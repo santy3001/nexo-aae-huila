@@ -1,13 +1,13 @@
-"""Precipitación diaria 2019-2022 de estaciones candidatas del Huila (IDEAM).
+"""Precipitación diaria 2020-2025 de estaciones candidatas del Huila (IDEAM).
 
-Consulta el dataset oficial:
+Dataset oficial:
 https://www.datos.gov.co/resource/s54a-sgyg.json
 
 Estrategia:
-- Consulta mes por mes para evitar timeouts del servidor.
-- Agrupa las lecturas de 10 minutos por día.
-- Suma valorobservado para obtener precipitación diaria en mm.
-- Guarda el resultado parcial después de cada mes.
+- Consulta mes por mes para evitar timeouts.
+- Agrupa lecturas de 10 minutos por día.
+- Suma valorobservado para obtener mm diarios.
+- Guarda avance después de cada mes.
 """
 
 import time
@@ -35,14 +35,13 @@ CANDIDATAS = {
     "0021107020": "Campoalegre - Puente Mulas",
 }
 
-ANIOS = range(2019, 2023)  # 2019 a 2022
+ANIOS = range(2020, 2026)  # 2020 a 2025
 
 TIMEOUT = 90
-INTENTOS = 4
+INTENTOS = 5
 
 
 def crear_sesion() -> requests.Session:
-    """Crea una sesión con reintentos automáticos."""
     session = requests.Session()
 
     retry = Retry(
@@ -55,15 +54,12 @@ def crear_sesion() -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-
     session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     return session
 
 
-def pedir_mes(session: requests.Session, codigo: str, anio: int, mes: int):
-    """Consulta la precipitación diaria de una estación en un mes."""
-
+def pedir_mes(session, codigo, anio, mes):
     inicio = f"{anio}-{mes:02d}-01T00:00:00"
 
     if mes == 12:
@@ -101,15 +97,17 @@ def pedir_mes(session: requests.Session, codigo: str, anio: int, mes: int):
     return r.json()
 
 
-def main() -> None:
+def main():
     session = crear_sesion()
     partes = []
 
     for codigo, nombre in CANDIDATAS.items():
         for anio in ANIOS:
             for mes in range(1, 13):
-                etiqueta = f"{nombre} - {anio}-{mes:02d}"
-                print(etiqueta, "...", flush=True)
+                print(
+                    f"{nombre} - {anio}-{mes:02d} ...",
+                    flush=True,
+                )
 
                 filas = None
 
@@ -120,7 +118,10 @@ def main() -> None:
                         break
 
                     espera = 5 * intento
-                    print(f"   reintento {intento}/{INTENTOS} en {espera}s")
+                    print(
+                        f"   reintento {intento}/{INTENTOS} "
+                        f"en {espera}s"
+                    )
                     time.sleep(espera)
 
                 if not filas:
@@ -134,17 +135,13 @@ def main() -> None:
 
                 print(f"   {len(filas)} días con datos")
 
-                # Guardar avance para no perder todo si se corta
-                if partes:
-                    pd.concat(partes, ignore_index=True).to_csv(
-                        SALIDA, index=False
-                    )
+                # Guardar avance incremental
+                pd.concat(partes, ignore_index=True).to_csv(
+                    SALIDA, index=False
+                )
 
     if not partes:
-        raise SystemExit(
-            "No se descargó ningún dato. Puede ser un problema temporal "
-            "del servidor de Datos Abiertos; intenta más tarde."
-        )
+        raise SystemExit("No se descargó ningún dato.")
 
     df = pd.concat(partes, ignore_index=True)
 
@@ -152,14 +149,14 @@ def main() -> None:
     df["mm"] = pd.to_numeric(df["mm"], errors="coerce")
     df["lecturas"] = pd.to_numeric(df["lecturas"], errors="coerce")
 
-    # Eliminar duplicados si el script se ejecuta más de una vez
+    # Evitar duplicados si se vuelve a ejecutar
     df = df.drop_duplicates(
         subset=["codigoestacion", "codigosensor", "dia"]
     )
 
     df.to_csv(SALIDA, index=False)
 
-    print("\n=== Sensores encontrados por estación ===")
+    print("\n=== Sensores por estación ===")
     print(
         df.groupby("codigoestacion")["codigosensor"]
         .unique()
@@ -171,14 +168,6 @@ def main() -> None:
         df.groupby("codigoestacion")["mm"]
         .max()
         .round(1)
-        .to_string()
-    )
-
-    print("\n=== Promedio diario por estación (mm) ===")
-    print(
-        df.groupby("codigoestacion")["mm"]
-        .mean()
-        .round(2)
         .to_string()
     )
 
